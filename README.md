@@ -1,0 +1,235 @@
+# RLAIF-RealPersonaChat: Real Persona Chatを用いたRLAIF実装
+
+このリポジトリでは、[Training Dialogue Systems by AI Feedback for Improving Overall Dialogue Impression](https://ieeexplore.ieee.org/document/10888775)のDirect Preference Optimizationの再現実装を提供します。
+ただし、学習データは論文内とは異なるReal Persona Chatを用います。
+
+
+## 📝 プロジェクト概要
+
+本プロジェクトでは、Real Persona Chatデータセットの「情報量」評価指標を用いて、対話システムの品質向上を実現します：
+
+- **Real Persona Chat**: nu-dialogue/real-persona-chatデータセット使用
+- **評価指標**: informativeness, comprehension, familiarity, interest, proactiveness, satisfaction
+- **RLAIF**: AI Feedbackを用いた報酬モデル学習とDPO最適化
+- **報酬モデルとして用いるベースモデル**: llm-jp/llm-jp-3-1.8b-instruct
+
+## 🏗️ プロジェクト構造
+
+```
+rlaif-realpersonachat/
+├── scripts/                     # 実行スクリプト
+│   ├── format_realpersonachat.py    # データセットのダウンロードと前処理
+│   ├── train_evaluator_rpc.py       # 報酬モデル学習
+│   ├── evaluate_reward_model.py     # 報酬モデル評価
+│   ├── dpo.py                       # DPOを用いた対話モデル学習
+│   ├── evaluate_dialog_model.py     # 対話モデル評価
+│   ├── utils/
+│   │   └── utils.py                 # ユーティリティ関数
+├── config/                      # 設定ファイル
+│   ├── evaluator_1.8b.json         # 評価モデル学習設定
+│   └── rlaif_1.8b.json             # DPO学習設定
+├── resources/                   # リソースファイル
+│   ├── instruction_informativeness.txt # 評価指示文
+├── checkpoints/                 # 学習済みモデル
+├── outputs/                     # 実験結果
+```
+
+## 🚀 実行手順
+
+以下の順序で実行してください：
+
+### 1. データセット前処理 (format_realpersonachat)
+
+Real Persona Chatデータセットをダウンロードし、学習用フォーマットに変換します：
+
+```bash
+python scripts/format_realpersonachat.py --label informativeness
+```
+
+**オプション**:
+- `--label`: 対象評価指標 (informativeness, comprehension, familiarity, interest, proactiveness, satisfaction)
+
+**出力**: `resources/real_persona_chat.csv` (約40万件の対話データ)
+
+### 2. 評価モデル学習 (train_evaluator)
+
+情報量を評価する報酬モデルを学習します：
+
+```bash
+python scripts/train_evaluator_rpc.py --config config/evaluator_1.8b.json
+```
+
+
+
+**出力**: `checkpoints/mlp/` に学習済み評価モデル
+
+**メモリ要件**: 
+- 通常時: 約20GB VRAM
+- 学習時: 一時的に最大23.5GB VRAM使用
+- RTX 3090で約40分程度
+
+### 3. 報酬モデル評価 (evaluate_reward_model)
+
+学習した評価モデルの性能を確認します：
+
+```bash
+python scripts/evaluate_reward_model.py --eval_model checkpoints/mlp/checkpoint-XXXX
+```
+
+**機能**:
+- 学習済み評価モデルの性能検証
+- GPT-3.5との比較評価
+- 評価結果の出力
+
+### 4. DPO学習 (dpo)
+
+評価モデルを用いて対話モデルをDPOで改善します：
+
+```bash
+python scripts/dpo.py --config config/rlaif_1.8b.json --do_preprocess
+```
+
+**処理内容**:
+- 対話データから2つの応答を生成
+- 評価モデルで応答を評価
+- 高評価応答をchosen、低評価応答をrejectedとしてDPO学習
+
+**出力**: `checkpoints/dpo/` に改善されたモデル
+**メモリ要件**: 
+- 一時的に最大23.5GB VRAM使用
+- RTX 3090で約30分ほど
+
+### 5. 対話モデル評価 (evaluate_dialog_model)
+
+DPO前後のモデル性能を比較評価します：
+
+```bash
+# ベースモデルの評価
+python scripts/evaluate_dialog_model.py --dialog_model sbintuitions/sarashina2.2-1b
+
+# DPO適用後モデルの評価
+python scripts/evaluate_dialog_model.py --dialog_model checkpoints/dpo/checkpoint-XXXX
+```
+
+**評価結果例**:
+```
+DPO適用前: 4.791781556372549
+DPO適用後: 4.852519914215686
+```
+
+## 🔧 設定ファイル詳細
+
+### evaluator_1.8b.json (評価モデル学習設定)
+
+```json
+{
+    "model": "llm-jp/llm-jp-3-1.8b-instruct",
+    "train_data_path": "./resources/real_persona_chat.csv",
+    "instruction_path": "./resources/instruction_informativeness.txt",
+    "output_dir": "./checkpoints/mlp",
+    "num_train_epochs": 3,
+    "per_device_train_batch_size": 4,
+    "learning_rate": 1e-4,
+    "lora_r": 64,
+    "lora_alpha": 16
+}
+```
+
+### rlaif_1.8b.json (DPO学習設定)
+
+```json
+{
+    "target_model": "sbintuitions/sarashina2.2-1b",
+    "eval_model": "checkpoints/mlp/checkpoint-6795",
+    "output_dir": "checkpoints/dpo",
+    "num_train_epochs": 10,
+    "per_device_train_batch_size": 2,
+    "learning_rate": 1e-5,
+    "beta": 0.25
+}
+```
+
+## 📊 評価指標
+
+### Real Persona Chat評価指標
+
+1. **informativeness (情報量)**: 発話に含まれる情報の量
+2. **comprehension (理解度)**: 対話相手の理解度
+3. **familiarity (親しみやすさ)**: 対話の親しみやすさ  
+4. **interest (興味深さ)**: 対話内容の興味深さ
+5. **proactiveness (積極性)**: 対話への積極的な参加
+6. **satisfaction (満足度)**: 対話への満足度
+
+### 評価方法
+
+- **1-5段階評価**: Real Persona Chatの人間評価に基づく
+- **回帰学習**: LoRAを用いた効率的な学習
+- **比較評価**: GPT-3.5との性能比較
+
+
+## 📈 実験結果
+
+
+## 📋 依存パッケージ
+
+```bash
+pip install torch transformers datasets trl peft wandb pandas scikit-learn tqdm openai
+```
+torchは各自のcudaに合ったversionを[公式](https://pytorch.org/get-started/locally/)からインストール
+
+### メモリ不足の場合
+
+```bash
+# batch_sizeを減らす
+--per_device_train_batch_size 2
+
+# MAX_LENを調整
+--max_length 512
+```
+
+### 学習が遅い場合
+
+```bash
+# gradient_accumulation_stepsを増やしてbatch_sizeを調整
+--gradient_accumulation_steps 8
+--per_device_train_batch_size 1
+```
+
+## 📊 ログとモニタリング
+
+### WandB設定
+
+```bash
+wandb login
+export WANDB_PROJECT="rlaif-realpersonachat"
+```
+
+### ログの確認
+
+```bash
+# 学習ログ
+tail -f logs/training.log
+
+# WandBダッシュボード
+wandb sync wandb/
+```
+
+## 🤝 使用方法（クイックスタート）
+
+```bash
+# 1. データ準備
+python scripts/format_realpersonachat.py --label informativeness
+
+# 2. 評価モデル学習
+python scripts/train_evaluator_rpc.py --config config/evaluator_1.8b.json
+
+# 3. 評価モデル性能確認
+python scripts/evaluate_reward_model.py --eval_model checkpoints/mlp/checkpoint-6795
+
+# 4. DPO学習
+python scripts/dpo.py --config config/rlaif_1.8b.json --do_preprocess
+
+# 5. 最終評価
+python scripts/evaluate_dialog_model.py --dialog_model checkpoints/dpo/final
+```
+
