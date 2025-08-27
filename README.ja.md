@@ -231,3 +231,14 @@ python scripts/dpo.py --config config/rlaif_1.8b.json --do_preprocess
 python scripts/evaluate_dialog_model.py --dialog_model checkpoints/dpo/final
 ```
 
+## 引用
+```
+@inproceedings{yoshida-etal-2025-aif,
+  author={Yoshida, Kai and Mizukami, Masahiro and Kawano, Seiya and Kruengkrai, Canasai and Sugiyama, Hiroaki and Yoshino, Koichiro},
+  booktitle={ICASSP 2025 - 2025 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)}, 
+  title={Training Dialogue Systems by AI Feedback for Improving Overall Dialogue Impression}, 
+  year={2025},
+  pages={1-5},
+  keywords={Measurement;Training;Hands;Adaptation models;Large language models;Reinforcement learning;Oral communication;Signal processing;Speech processing;Tuning;Dialogue System;Conversation System;RLAIF;RLHF;LLM},
+  doi={10.1109/ICASSP49660.2025.10888775}}
+```
